@@ -1,0 +1,9 @@
+.idea
+.circleci
+.vscode
+node_modules
+ios
+flow-typed
+android/
+src/utils/shim.js
+reports

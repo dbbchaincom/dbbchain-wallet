@@ -1,0 +1,167 @@
+# This file contains the fastlane.tools configuration
+# You can find the documentation at https://docs.fastlane.tools
+#
+# For a list of all available actions, check out
+#
+#     https://docs.fastlane.tools/actions
+#
+# For a list of all available plugins, check out
+#
+#     https://docs.fastlane.tools/plugins/available-plugins
+#
+
+# Uncomment the line if you want fastlane to automatically update itself
+# update_fastlane
+fastlane_require "indentation"
+default_platform(:android)
+
+platform :android do
+
+  desc "Deploy a new version to the Google Play Staging Test Track"
+  lane :deploy_staging do
+    changelog_from_git_commits(
+     merge_commit_filtering: 'exclude_merges'
+    )
+    upload_to_play_store(
+      track: 'internal',
+      apk: 'app/build/outputs/apk/prod/staging/app-prod-staging.apk',
+      json_key_data: ENV['GOOGLE_JSON_DATA'],
+      package_name: 'com.pillarproject.wallet.staging',
+      skip_upload_aab: true,
+      skip_upload_images: true,
+      skip_upload_screenshots: true
+    )
+  end
+
+  desc "Deploy a new version to the Google Play Internal Test Track"
+  lane :deploy_internal do
+    changelog_from_git_commits(
+     merge_commit_filtering: 'exclude_merges'
+    )
+    upload_to_play_store(
+      track: 'internal',
+      apk: 'app/build/outputs/apk/prod/release/app-prod-release.apk',
+      json_key_data: ENV['GOOGLE_JSON_DATA'],
+      package_name: 'com.pillarproject.wallet',
+      skip_upload_aab: true,
+      skip_upload_images: true,
+      skip_upload_screenshots: true
+    )
+  end
+
+  desc "Deploy a new alpha version to the Google Play Store Alpha Track"
+  lane :deploy_alpha do
+  changelog_from_git_commits(
+   merge_commit_filtering: 'exclude_merges'
+  )
+	upload_to_play_store(
+		track: "alpha",
+    apk: 'app/build/outputs/apk/prod/release/app-prod-release.apk',
+    json_key_data: ENV['GOOGLE_JSON_DATA'],
+    package_name: 'com.pillarproject.wallet',
+    skip_upload_aab: true,
+    skip_upload_images: true,
+    skip_upload_screenshots: true
+	)
+  end
+
+  desc "Deploy a new beta version to the Google Play Store Beta Track"
+  lane :deploy_beta do
+  changelog_from_git_commits(
+   merge_commit_filtering: 'exclude_merges'
+  )
+  upload_to_play_store(
+    track: "beta",
+    apk: 'app/build/outputs/apk/prod/release/app-prod-release.apk',
+    json_key_data: ENV['GOOGLE_JSON_DATA'],
+    package_name: 'com.pillarproject.wallet',
+    skip_upload_aab: true,
+    skip_upload_images: true,
+    skip_upload_screenshots: true
+  )
+  end
+
+  desc "Deploy staging development build to hockeyapp"
+  lane :deploy_android_hockeyapp do
+    buildApp(
+      flavorName: 'prod',
+      hockeyAppToken: ENV["HOCKEYAPP_UPLOAD_TOKEN"],
+      apkName: 'app-prod-staging.apk'
+    )
+  end
+
+  desc "Build custom changelog"
+  lane :build_custom_changelog do
+    changelog_notes = changelog_from_git_commits(
+      merge_commit_filtering: "only_include_merges"
+    )
+
+    custom_changelog = ""
+
+    pr_merges = changelog_notes.split(/Merge/)
+
+    pr_merges = pr_merges.grep(/\.*pull request\.*/)
+
+    pr_merges = pr_merges.reject { |text| text.match(/Merge.from/) }
+
+    pr_merges.each do |merge_text|
+
+        pr_number = merge_text.match(/pull request [#]([0-9]+).*/i).captures[0]
+
+        result = github_api(
+          api_token: ENV["GITHUB_TOKEN"],
+          http_method: "GET",
+          path: "/repos/pillarwallet/pillarwallet/pulls/#{pr_number}"
+        )
+
+        pr_body = "#{result[:json]['body']}"
+
+        custom_changelog << "- #{result[:json]['title']}"
+
+        unless pr_body.nil? || pr_body.empty? then
+          custom_changelog << "\n#{pr_body.indent(4)}"
+        end
+
+        custom_changelog << "\n"
+
+    end
+
+    UI.message "Changelog: #{custom_changelog}"
+
+    custom_changelog
+  end
+
+  desc "Build application"
+  private_lane :buildApp do |options|
+
+    # clean
+    #gradle(
+    #  task: 'clean',
+    #  flags: '--no-daemon'
+    #)
+
+    ## build the release variant
+    #gradle(
+    #  task: 'assemble',
+    #  build_type: 'staging',
+    #  flavor: options[:flavorName],
+    #  flags: '--no-daemon'
+    #)
+
+    # Generate the changelog based on commit messages since your last tag
+    changelog = build_custom_changelog
+
+    lastCommit = last_git_commit
+
+    hockey(
+      api_token: options[:hockeyAppToken],
+      notes: changelog,
+      commit_sha: lastCommit[:commit_hash],
+      notify: "1",
+      apk: "app/build/outputs/apk/prod/staging/#{options[:apkName]}"
+    )
+
+  end
+
+
+end
